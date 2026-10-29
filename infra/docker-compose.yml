@@ -1,0 +1,187 @@
+name: alphaview
+
+x-service-env: &service-env
+  DATABASE_URL: postgresql+asyncpg://alphaview:alphaview@postgres:5432/alphaview
+  REDIS_URL: redis://redis:6379/0
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_PASSWORD: alphaview
+  TEMPORAL_HOST: temporal:7233
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET missing - run ./start.sh to generate .env}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY missing - run ./start.sh to generate .env}
+  FRONTEND_URL: http://localhost:3000
+  CORS_ORIGINS: '["http://localhost:3000"]'
+
+x-python: &python
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    clickhouse: { condition: service_healthy }
+    temporal: { condition: service_started }
+
+x-api-health: &api-health
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 20s
+
+services:
+  # ---------- infrastructure ----------
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: alphaview
+      POSTGRES_PASSWORD: alphaview
+      POSTGRES_DB: alphaview
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alphaview"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_PASSWORD: alphaview
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports: ["127.0.0.1:8123:8123"]
+    volumes: [chdata:/var/lib/clickhouse]
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      retries: 30
+
+  temporal:
+    image: temporalio/auto-setup:1.25
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: alphaview
+      POSTGRES_PWD: alphaview
+      POSTGRES_SEEDS: postgres
+    ports: ["127.0.0.1:7233:7233"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8080:8080"]
+    depends_on: [temporal]
+
+  # ---------- edge ----------
+  gateway:
+    build: ../services/gateway
+    ports: ["8000:8000"]
+    depends_on:
+      identity: { condition: service_healthy }
+      integrations-api: { condition: service_healthy }
+      discovery-api: { condition: service_healthy }
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.28.0.5
+
+  web:
+    build: ../apps/web
+    environment:
+      API_URL: http://gateway:8000
+    ports: ["3000:3000"]
+    depends_on: [gateway]
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+
+  # ---------- identity ----------
+  identity:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: identity } }
+    environment: *service-env
+    command: ["uvicorn", "alphaview_identity.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "172.28.0.5"]
+    healthcheck: *api-health
+
+  # ---------- integrations ----------
+  integrations-api:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: integrations } }
+    image: alphaview/integrations:local
+    environment: &integrations-env
+      <<: *service-env
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_URL: http://localhost:8000/connections/oauth/callback
+    command: ["uvicorn", "alphaview_integrations.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "172.28.0.5"]
+    healthcheck: *api-health
+
+  integrations-worker:
+    <<: *python
+    image: alphaview/integrations:local
+    environment: *integrations-env
+    command: ["python", "-m", "alphaview_integrations.worker"]
+    depends_on:
+      integrations-api: { condition: service_healthy }
+
+  # ---------- discovery ----------
+  discovery-api:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: discovery } }
+    image: alphaview/discovery:local
+    environment: *service-env
+    command: ["uvicorn", "alphaview_discovery.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "172.28.0.5"]
+    healthcheck: *api-health
+
+  discovery-worker:
+    <<: *python
+    image: alphaview/discovery:local
+    environment: *service-env
+    command: ["python", "-m", "alphaview_discovery.worker"]
+    depends_on:
+      discovery-api: { condition: service_healthy }
+
+  # ---------- pipeline workers (scale with: docker compose up --scale crawler-worker=4) ----------
+  crawler-worker:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: crawler } }
+    environment: *service-env
+    command: ["python", "-m", "alphaview_crawler.worker"]
+
+  nlp-worker:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: nlp } }
+    environment: *service-env
+    command: ["python", "-m", "alphaview_nlp.worker"]
+
+  strategist-worker:
+    <<: *python
+    build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: strategist } }
+    environment:
+      <<: *service-env
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    command: ["python", "-m", "alphaview_strategist.worker"]
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  pgdata:
+  chdata:

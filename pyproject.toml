@@ -1,0 +1,60 @@
+[project]
+name = "alphaview-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/py-common", "services/identity", "services/integrations", "services/discovery", "services/crawler", "services/nlp", "services/strategist"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "alphaview-common",
+    "alphaview-identity",
+    "alphaview-integrations",
+    "alphaview-discovery",
+    "alphaview-crawler",
+    "alphaview-nlp",
+    "alphaview-strategist",
+]
+
+[tool.uv.sources]
+alphaview-common = { workspace = true }
+alphaview-identity = { workspace = true }
+alphaview-integrations = { workspace = true }
+alphaview-discovery = { workspace = true }
+alphaview-crawler = { workspace = true }
+alphaview-nlp = { workspace = true }
+alphaview-strategist = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"
+testpaths = [
+    "packages/py-common/tests",
+    "services/identity",
+    "services/integrations/tests",
+    "services/discovery/tests",
+    "services/crawler/tests",
+    "services/nlp/tests",
+    "services/strategist/tests",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B", "I"]
+# B008: FastAPI's Depends() in defaults is the framework idiom.
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["alphaview_common", "alphaview_identity", "alphaview_integrations", "alphaview_discovery", "alphaview_crawler", "alphaview_nlp", "alphaview_strategist"]
