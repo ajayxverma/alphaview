@@ -2,11 +2,24 @@ from datetime import date, timedelta
 
 import httpx
 
+from alphaview_common.geo import CITY_MAX_KM
 from alphaview_integrations.connectors import google_oauth
 from alphaview_integrations.connectors.base import Capability, Connector, ConnectorError, KeywordMetrics, raise_for
 from alphaview_integrations.schemas import FieldSpec
 
 API = "https://analyticsdata.googleapis.com/v1beta"
+
+
+def _geo_filters(geo) -> list[dict]:
+    """GA4 segments by countryId, plus city when the radius is city-sized."""
+    if not geo:
+        return []
+    exprs: list[dict] = []
+    if geo.get("country_code"):
+        exprs.append({"filter": {"fieldName": "countryId", "stringFilter": {"value": geo["country_code"].upper()}}})
+    if geo.get("city") and geo.get("radius_km", CITY_MAX_KM + 1) <= CITY_MAX_KM:
+        exprs.append({"filter": {"fieldName": "city", "stringFilter": {"value": geo["city"]}}})
+    return exprs
 
 
 class GoogleAnalytics4(Connector):
@@ -40,10 +53,16 @@ class GoogleAnalytics4(Connector):
             {"dateRanges": [{"startDate": "7daysAgo", "endDate": "today"}], "metrics": [{"name": "activeUsers"}]},
         )
 
-    async def enrich(self, client, creds, config, keywords) -> KeywordMetrics:
+    async def enrich(self, client, creds, config, keywords, geo=None) -> KeywordMetrics:
         start = (date.today() - timedelta(days=90)).isoformat()
         out: KeywordMetrics = {}
         for kw in keywords:
+            term = {
+                "filter": {
+                    "fieldName": "searchTerm",
+                    "stringFilter": {"matchType": "CONTAINS", "value": kw, "caseSensitive": False},
+                }
+            }
             data = await self._report(
                 client,
                 creds,
@@ -52,12 +71,7 @@ class GoogleAnalytics4(Connector):
                     "dateRanges": [{"startDate": start, "endDate": "today"}],
                     "dimensions": [{"name": "searchTerm"}],
                     "metrics": [{"name": "eventCount"}],
-                    "dimensionFilter": {
-                        "filter": {
-                            "fieldName": "searchTerm",
-                            "stringFilter": {"matchType": "CONTAINS", "value": kw, "caseSensitive": False},
-                        }
-                    },
+                    "dimensionFilter": {"andGroup": {"expressions": [term, *_geo_filters(geo)]}},
                     "limit": 100,
                 },
             )

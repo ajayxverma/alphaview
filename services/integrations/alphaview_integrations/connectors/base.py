@@ -4,6 +4,7 @@ from typing import ClassVar, Literal
 
 import httpx
 
+from alphaview_common.geo import Geo
 from alphaview_integrations.schemas import FieldSpec
 
 KeywordMetrics = dict[str, dict[str, float]]
@@ -46,8 +47,9 @@ class Connector(ABC):
 
     @abstractmethod
     async def enrich(
-        self, client: httpx.AsyncClient, creds: dict, config: dict, keywords: list[str]
-    ) -> KeywordMetrics: ...
+        self, client: httpx.AsyncClient, creds: dict, config: dict, keywords: list[str], geo: Geo | None = None
+    ) -> KeywordMetrics:
+        """`geo` narrows metrics to the searched location/radius where the tool supports it."""
 
 
 def growth_ratio(series: list[float]) -> float:

@@ -5,6 +5,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from alphaview_common.geo import Geo
 from alphaview_common.security import decrypt_json
 from alphaview_integrations.connectors.base import KeywordMetrics
 from alphaview_integrations.connectors.registry import get_connector
@@ -14,7 +15,7 @@ _AVERAGED = {"trend_growth", "competition"}
 
 
 async def enrich_keywords(
-    db: AsyncSession, workspace_id: uuid.UUID, keywords: list[str]
+    db: AsyncSession, workspace_id: uuid.UUID, keywords: list[str], geo: Geo | None = None
 ) -> tuple[KeywordMetrics, list[str]]:
     """Fan out to every active connection in the workspace and merge normalized metrics."""
     conns = (
@@ -33,7 +34,7 @@ async def enrich_keywords(
                 return conn, None, None
             try:
                 creds = decrypt_json(conn.encrypted_credentials)
-                return conn, await connector.enrich(client, creds, conn.config, keywords), None
+                return conn, await connector.enrich(client, creds, conn.config, keywords, geo), None
             except Exception as exc:  # third-party failure must not break the whole run
                 return conn, None, str(exc)[:500]
 

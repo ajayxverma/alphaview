@@ -2,18 +2,9 @@
 # Start every alphaview microservice with Docker Compose.
 # Usage: ./start.sh [up|stop|restart|logs [service]|status]
 set -euo pipefail
+source "$(dirname "$0")/scripts/common.sh"
 
-cd "$(dirname "$0")"
-COMPOSE=(docker compose -f infra/docker-compose.yml --env-file .env -p alphaview)
 GATEWAY_HEALTH="http://localhost:8000/health"
-
-die() { echo "error: $*" >&2; exit 1; }
-
-require_docker() {
-  command -v docker >/dev/null 2>&1 || die "Docker is not installed. Install Docker Desktop: https://docs.docker.com/get-docker/"
-  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required (docker compose ...)."
-  docker info >/dev/null 2>&1 || die "Docker daemon is not running. Start Docker Desktop and retry."
-}
 
 rand_b64() {
   if command -v openssl >/dev/null 2>&1; then openssl rand -base64 "$1"; else head -c "$1" /dev/urandom | base64; fi
@@ -42,13 +33,13 @@ wait_for_gateway() {
     sleep 3
   done
   echo
-  "${COMPOSE[@]}" ps
+  compose ps
   die "gateway did not become healthy in time. Inspect with: ./start.sh logs"
 }
 
 up() {
   ensure_env
-  "${COMPOSE[@]}" up -d --build --remove-orphans
+  compose up -d --build --remove-orphans
   wait_for_gateway
   cat <<EOF
 
@@ -57,16 +48,17 @@ alphaview is running
   API gateway  http://localhost:8000
   Temporal UI  http://localhost:8080
 
-Stop with: ./start.sh stop   |   Logs: ./start.sh logs [service]
+Stop: ./stop.sh   |   Logs: ./start.sh logs [service]   |   Wipe everything: ./reset.sh
 EOF
 }
 
 require_docker
+ensure_env
 case "${1:-up}" in
   up|start) up ;;
-  stop|down) "${COMPOSE[@]}" down ;;
-  restart) "${COMPOSE[@]}" down; up ;;
-  logs) shift; "${COMPOSE[@]}" logs -f --tail=100 "$@" ;;
-  status|ps) "${COMPOSE[@]}" ps ;;
+  stop|down) exec ./stop.sh ;;
+  restart) compose down; up ;;
+  logs) shift; compose logs -f --tail=100 "$@" ;;
+  status|ps) compose ps ;;
   *) die "unknown command '$1'. Use: up | stop | restart | logs [service] | status" ;;
 esac

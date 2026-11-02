@@ -3,6 +3,21 @@ from alphaview_integrations.schemas import FieldSpec
 
 API = "https://api.semrush.com/"
 
+# Semrush regional databases (country-level only); Semrush uses "uk" for GB.
+_DATABASES = {
+    "us", "uk", "ca", "au", "de", "fr", "es", "it", "br", "mx", "ar", "in", "jp", "nl", "be", "ch", "at",
+    "se", "no", "dk", "fi", "ie", "pl", "pt", "tr", "za", "sg", "hk", "nz", "il", "ae", "sa", "kr", "tw",
+    "id", "ph", "my", "th", "vn", "cz", "ro", "hu", "gr", "ua", "co", "cl", "pe", "eg", "ng", "pk",
+}
+
+
+def semrush_database(geo) -> str | None:
+    if not geo or not geo.get("country_code"):
+        return None
+    code = geo["country_code"].lower()
+    code = "uk" if code == "gb" else code
+    return code if code in _DATABASES else None
+
 
 class Semrush(Connector):
     id = "semrush"
@@ -21,7 +36,8 @@ class Semrush(Connector):
         if not resp.text.strip().isdigit():
             raise ConnectorError("Semrush key rejected")
 
-    async def enrich(self, client, creds, config, keywords) -> KeywordMetrics:
+    async def enrich(self, client, creds, config, keywords, geo=None) -> KeywordMetrics:
+        database = semrush_database(geo) or config.get("database") or "us"
         out: KeywordMetrics = {}
         for kw in keywords:
             resp = await client.get(
@@ -31,7 +47,7 @@ class Semrush(Connector):
                     "key": creds["api_key"],
                     "phrase": kw,
                     "export_columns": "Ph,Nq,Cp,Co",
-                    "database": config.get("database") or "us",
+                    "database": database,
                 },
             )
             raise_for(resp, "Semrush")

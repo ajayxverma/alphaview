@@ -66,15 +66,25 @@ def _summarize(members: list[Signal], label_terms: list[str], midpoint: float) -
     sources: dict[str, int] = {}
     for m in members:
         sources[m.source] = sources.get(m.source, 0) + 1
+    demand_weights = [0.5 if member.source == "web" else 1.0 for member in members]
+    representatives = {}
+    for member in top:
+        representatives.setdefault(member.source, member)
+    evidence_members = list(representatives.values())
+    representative_ids = {member.id for member in evidence_members}
+    evidence_members += [member for member in top if member.id not in representative_ids]
     return {
         "label": ", ".join(label_terms[:3]),
         "keywords": label_terms[:5],
         "size": n,
         "engagement": int(sum(m.engagement + m.comments for m in members)),
         "velocity": round((recent + 1) / (n - recent + 1), 3),
-        "neg_sentiment": round(float(np.mean([max(0.0, -m.sentiment) for m in members])), 3),
-        "demand_ratio": round(sum(i in DEMAND_INTENTS for i in intents) / n, 3),
-        "complaint_ratio": round(intents.count("complaint") / n, 3),
+        "neg_sentiment": round(float(np.mean([max(0.0, -member.sentiment) * weight
+                              for member, weight in zip(members, demand_weights, strict=True)])), 3),
+        "demand_ratio": round(sum(weight for member, weight in zip(members, demand_weights, strict=True)
+                      if member.intent in DEMAND_INTENTS) / n, 3),
+        "complaint_ratio": round(sum(weight for member, weight in zip(members, demand_weights, strict=True)
+                         if member.intent == "complaint") / n, 3),
         "supply_ratio": round(intents.count("solution") / n, 3),
         "unanswered_ratio": round(sum(1 for m in se if not m.answered) / len(se), 3) if se else 0.0,
         "sources": sources,
@@ -86,8 +96,10 @@ def _summarize(members: list[Signal], label_terms: list[str], midpoint: float) -
                 "intent": m.intent,
                 "sentiment": round(m.sentiment, 2),
                 "engagement": m.engagement,
+                "excerpt": m.text[:500],
+                "published_at": m.created_at.isoformat(),
             }
-            for m in top[:6]
+            for m in evidence_members[: max(6, len(representatives))]
         ],
         "excerpts": [m.content[:300] for m in top[:12]],
     }

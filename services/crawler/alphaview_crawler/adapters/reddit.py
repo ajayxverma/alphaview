@@ -8,11 +8,12 @@ class RedditAdapter(SourceAdapter):
     id = "reddit"
     name = "Reddit"
 
-    async def search(self, client, query, since):
-        resp = await client.get(
-            "https://www.reddit.com/search.json",
-            params={"q": query, "sort": "relevance", "t": "year", "limit": 100, "type": "link"},
-        )
+    async def search(self, client, query, since, subreddit: str | None = None):
+        url = f"https://www.reddit.com/r/{subreddit}/search.json" if subreddit else "https://www.reddit.com/search.json"
+        params = {"q": query, "sort": "relevance", "t": "year", "limit": 100, "type": "link"}
+        if subreddit:
+            params["restrict_sr"] = "1"
+        resp = await client.get(url, params=params)
         resp.raise_for_status()
         out: list[Signal] = []
         for child in resp.json().get("data", {}).get("children", []):

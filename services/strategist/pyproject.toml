@@ -1,10 +1,12 @@
 [project]
 name = "alphaview-strategist"
 version = "0.1.0"
-description = "alphaview strategist service: LLM synthesis of startup theses"
+description = "alphaview strategist service: AI provider credentials API + LLM synthesis worker"
 requires-python = ">=3.12"
 dependencies = [
     "alphaview-common",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
     "litellm>=1.50",
 ]
 

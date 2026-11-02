@@ -12,12 +12,14 @@ from alphaview_common import contracts as c
 from alphaview_discovery.workflow import DiscoveryWorkflow
 
 CLUSTER = {"label": "a", "keywords": ["k1", "k2"], "evidence": []}
+GEO = {"label": "Austin, Texas, United States", "lat": 30.27, "lon": -97.74, "radius_km": 25, "country_code": "US"}
 
 
-def make_activities(calls: list[str]):
+def make_activities(calls: list[str], web: bool = False):
     @activity.defn(name=c.GET_RUN)
     async def get_run(run_id: str) -> dict:
-        return {"query": "q", "sources": ["reddit"], "workspace_id": str(uuid.uuid4())}
+        return {"query": "q", "sources": ["reddit", "web"] if web else ["reddit"],
+            "workspace_id": str(uuid.uuid4()), "geo": GEO}
 
     @activity.defn(name=c.SET_STATUS)
     async def set_status(run_id: str, status: str, error: str | None, count: int | None) -> None:
@@ -33,39 +35,56 @@ def make_activities(calls: list[str]):
         return len(ranked)
 
     @activity.defn(name=c.CRAWL_SOURCES)
-    async def crawl(run_id: str, query: str, sources: list) -> int:
-        return 42
+    async def crawl(run_id: str, query: str, sources: list, geo: dict | None, web_urls: list | None = None,
+                    collect_outcomes: bool = False) -> int | dict:
+        assert geo == GEO
+        assert web_urls == (["https://example.com/blog"] if web else None)
+        return {"count": 42, "attempts": []} if collect_outcomes else 42
+
+    @activity.defn(name=c.RECORD_RESEARCH_CRAWL)
+    async def record(run_id: str, result: dict) -> list[str]:
+        assert result["count"] == 42
+        return []
+
+    @activity.defn(name=c.DISCOVER_WEB_URLS)
+    async def discover_urls(workspace_id: str, query: str, geo: dict | None) -> list[str]:
+        assert web and geo == GEO
+        return ["https://example.com/blog"]
 
     @activity.defn(name=c.ANALYZE_SIGNALS)
     async def analyze(run_id: str, query: str) -> list:
         return [CLUSTER, CLUSTER]
 
     @activity.defn(name=c.ENRICH_KEYWORDS)
-    async def enrich(workspace_id: str, keywords: list) -> dict:
+    async def enrich(workspace_id: str, keywords: list, geo: dict | None) -> dict:
         assert keywords == ["k1", "k2"]
+        assert geo == GEO
         return {"kw_metrics": {}, "connectors_used": []}
 
     @activity.defn(name=c.SYNTHESIZE_STRATEGY)
-    async def synth(query: str, cluster: dict, scored: dict) -> dict:
+    async def synth(workspace_id: str, query: str, cluster: dict, scored: dict) -> dict:
+        uuid.UUID(workspace_id)
+        assert "Austin" in query and "25 km" in query
         return {"title": "t"}
 
     return {
-        c.DISCOVERY_QUEUE: [get_run, set_status, rank, persist],
+        c.DISCOVERY_QUEUE: [get_run, set_status, rank, persist, record],
         c.CRAWLER_QUEUE: [crawl],
         c.NLP_QUEUE: [analyze],
-        c.INTEGRATIONS_QUEUE: [enrich],
+        c.INTEGRATIONS_QUEUE: [enrich, discover_urls],
         c.STRATEGIST_QUEUE: [synth],
     }
 
 
-async def test_workflow_routes_across_queues():
+@pytest.mark.parametrize("web", [False, True])
+async def test_workflow_routes_across_queues(web):
     calls: list[str] = []
     try:
         env = await WorkflowEnvironment.start_time_skipping()
     except RuntimeError as exc:  # test server binary download unavailable (offline)
         pytest.skip(f"Temporal test server unavailable: {exc}")
     async with env, AsyncExitStack() as stack:
-        for q, acts in make_activities(calls).items():
+        for q, acts in make_activities(calls, web).items():
             wfs = [DiscoveryWorkflow] if q == c.DISCOVERY_QUEUE else []
             await stack.enter_async_context(Worker(env.client, task_queue=q, activities=acts, workflows=wfs))
         result = await env.client.execute_workflow(

@@ -5,12 +5,38 @@ export type RunStatus =
   | "enriching"
   | "synthesizing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
+ 
+export interface ResearchBudget {
+  seconds: number; pages: number; queries: number; paid_calls: number; rounds: number; requests: number;
+}
+
+export interface ResearchOptions {
+  mode: "quick" | "deep"; budget: ResearchBudget; language?: string; date_from?: string | null; date_to?: string | null;
+  seed_urls?: string[]; preferred_domains?: string[]; excluded_domains?: string[];
+}
+
+export interface Place {
+  label: string;
+  lat: number;
+  lon: number;
+  country_code?: string | null;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+}
+
+export interface Geo extends Place {
+  radius_km: number;
+}
 
 export interface Run {
   id: string;
   query: string;
   sources: string[];
+  geo: Geo | null;
+  research_config?: ResearchOptions | null;
   status: RunStatus;
   signal_count: number;
   error: string | null;
@@ -25,6 +51,8 @@ export interface Evidence {
   intent: string;
   sentiment: number;
   engagement: number;
+  excerpt?: string;
+  published_at?: string;
 }
 
 export interface Strategy {
@@ -40,6 +68,8 @@ export interface Strategy {
   kill_criteria: string[];
   key_takeaways: string[];
   generated_by: "llm" | "heuristic";
+  model?: string | null;
+  fallback_reason?: string | null;
 }
 
 export interface OpportunityMetrics {
@@ -105,3 +135,26 @@ export interface Connection {
 }
 
 export type KeywordMetrics = Record<string, Record<string, number>>;
+
+export interface AIProvider {
+  id: string;
+  name: string;
+  default_model: string;
+  models: string[];
+  can_list_models: boolean;
+  docs_url: string;
+  credential_fields: FieldSpec[];
+  config_fields: FieldSpec[];
+}
+
+export interface AICredential {
+  id: string;
+  provider: string;
+  label: string;
+  model: string;
+  config: Record<string, string>;
+  is_default: boolean;
+  status: "active" | "error";
+  last_error: string | null;
+  created_at: string;
+}

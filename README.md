@@ -53,13 +53,16 @@ The script generates `.env` with secure secrets on first run, builds and starts 
 Other commands:
 
 ```bash
-./start.sh stop              # stop everything
+./stop.sh                    # stop everything (data is kept)
+./reset.sh                   # DELETE all containers, data and built images (asks for confirmation)
 ./start.sh restart           # rebuild + restart
 ./start.sh logs [service]    # follow logs, e.g. ./start.sh logs crawler-worker
 ./start.sh status            # container status
 ```
 
-(Windows: same commands with `start.bat`.)
+(Windows: `stop.bat`, `reset.bat`, and `start.bat restart|logs|status`.)
+
+`reset` asks you to type `reset` to confirm, then optionally also removes `.env` and local build artifacts. Run `./start.sh` afterwards for a completely fresh install.
 
 ## Configuration (optional)
 
@@ -67,7 +70,8 @@ Edit `.env` (created on first run from [.env.example](.env.example)), then `./st
 
 | Variable | Purpose |
 |---|---|
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` + `LLM_MODEL` | Enables full LLM strategy synthesis (any [LiteLLM](https://docs.litellm.ai/docs/providers) model). Without a key a heuristic summary is generated. |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GROQ_API_KEY` + `LLM_MODEL` | *Optional server-wide fallback* AI key. Normally each user adds their own provider key on the **AI Models** page. Without any key a heuristic summary is generated. |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | Set `true` to allow `http://` or private-network LLM servers (e.g. Ollama on your machine via `http://host.docker.internal:11434`). Keep `false` for shared deployments. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables the GA4 and Search Console connectors. Create a Google OAuth (Web) client with redirect URI `http://localhost:8000/connections/oauth/callback` and enable the *Google Analytics Data API* and *Search Console API*. |
 
 API-key connectors (DataForSEO, SerpApi, Semrush) need no server config — users paste their keys on the **Integrations** page.
@@ -75,9 +79,10 @@ API-key connectors (DataForSEO, SerpApi, Semrush) need no server config — user
 ## Using the app
 
 1. **Register** at http://localhost:3000.
-2. *(Optional)* **Integrations** → connect your analytics tools; use **Query** to look up keyword metrics directly.
-3. **Discovery** → enter a niche or problem space (e.g. *"small accounting firms"*) and run.
-4. Watch the run progress (crawl → analyze → enrich → synthesize), then open the ranked opportunities for metrics, gap-score breakdown, strategy and source evidence.
+2. *(Optional)* **AI Models** → add your own key for **OpenAI, Anthropic, Google Gemini, Groq, Mistral, DeepSeek, xAI, Cohere, Perplexity, Together AI, Fireworks, OpenRouter, Azure OpenAI, Ollama** or any OpenAI-compatible server, and pick the default model.
+3. *(Optional)* **Integrations** → connect your analytics tools; use **Query** to look up keyword metrics directly.
+4. **Discovery** → enter a niche or problem space (e.g. *"small accounting firms"*) and run.
+5. Watch the run progress (crawl → analyze → enrich → synthesize), then open the ranked opportunities for metrics, gap-score breakdown, strategy and source evidence.
 
 ## Development
 
@@ -107,9 +112,13 @@ packages/py-common/    shared contracts, auth, db, Temporal helpers
 infra/                 docker-compose + shared Python Dockerfile
 docs/                  detailed documentation
 start.sh / start.bat   one-command start
+stop.sh / stop.bat     stop all services (keeps data)
+reset.sh / reset.bat   wipe containers, data and images (with confirmation)
 ```
 
 ## Documentation
+
+The evidence-driven research upgrade is being delivered in testable phases. See [Research status](docs/RESEARCH.md) for implemented evidence storage/failure visibility, provisional benchmark results and remaining Deep-research work.
 
 - [Functional specification](docs/FUNCTIONAL.md) — features, user journeys, business rules, gap-score formula
 - [Technology](docs/TECHNOLOGY.md) — stack, setup, configuration, security controls, roadmap

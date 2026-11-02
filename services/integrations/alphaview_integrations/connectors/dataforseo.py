@@ -27,14 +27,15 @@ class DataForSEO(Connector):
         resp = await client.get(f"{API}/appendix/user_data", auth=self._auth(creds))
         raise_for(resp, "DataForSEO")
 
-    async def enrich(self, client, creds, config, keywords) -> KeywordMetrics:
-        payload = [
-            {
-                "keywords": keywords[:1000],
-                "location_code": int(config.get("location_code") or 2840),
-                "language_code": "en",
-            }
-        ]
+    async def enrich(self, client, creds, config, keywords, geo=None) -> KeywordMetrics:
+        task: dict = {"keywords": keywords[:1000], "language_code": "en"}
+        if geo and "lat" in geo and "lon" in geo:
+            # Exact point + radius (km); DataForSEO caps the radius at 1000.
+            radius = max(1, min(int(geo.get("radius_km", 50)), 1000))
+            task["location_coordinate"] = f"{geo['lat']:.6f},{geo['lon']:.6f},{radius}"
+        else:
+            task["location_code"] = int(config.get("location_code") or 2840)
+        payload = [task]
         resp = await client.post(
             f"{API}/keywords_data/google_ads/search_volume/live", json=payload, auth=self._auth(creds)
         )

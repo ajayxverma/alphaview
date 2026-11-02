@@ -1,5 +1,6 @@
 import asyncio
 
+from alphaview_common.geo import REGION_MAX_KM
 from alphaview_integrations.connectors.base import Capability, Connector, KeywordMetrics, growth_ratio, raise_for
 from alphaview_integrations.schemas import FieldSpec
 
@@ -19,7 +20,7 @@ class SerpApi(Connector):
         resp = await client.get(f"{API}/account.json", params={"api_key": creds["api_key"]})
         raise_for(resp, "SerpApi")
 
-    async def _one(self, client, creds, config, kw: str) -> dict[str, float]:
+    async def _one(self, client, creds, config, kw: str, geo=None) -> dict[str, float]:
         trends_params = {
             "engine": "google_trends",
             "q": kw,
@@ -27,9 +28,15 @@ class SerpApi(Connector):
             "date": "today 12-m",
             "api_key": creds["api_key"],
         }
-        if config.get("geo"):
-            trends_params["geo"] = config["geo"]
         serp_params = {"engine": "google", "q": kw, "num": 10, "api_key": creds["api_key"]}
+        if geo and geo.get("country_code"):
+            trends_params["geo"] = geo["country_code"]
+            serp_params["gl"] = geo["country_code"].lower()
+            if geo.get("radius_km", 0) <= REGION_MAX_KM and geo.get("label"):
+                # Localised SERP: results as seen by a searcher in that place.
+                serp_params["location"] = geo["label"]
+        elif config.get("geo"):
+            trends_params["geo"] = config["geo"]
 
         trends, serp = await asyncio.gather(
             client.get(f"{API}/search.json", params=trends_params),
@@ -43,6 +50,6 @@ class SerpApi(Connector):
         total = serp.json().get("search_information", {}).get("total_results") or 0
         return {"trend_growth": growth_ratio(series), "serp_results": float(total)}
 
-    async def enrich(self, client, creds, config, keywords) -> KeywordMetrics:
-        results = await asyncio.gather(*(self._one(client, creds, config, kw) for kw in keywords))
+    async def enrich(self, client, creds, config, keywords, geo=None) -> KeywordMetrics:
+        results = await asyncio.gather(*(self._one(client, creds, config, kw, geo) for kw in keywords))
         return dict(zip(keywords, results, strict=True))

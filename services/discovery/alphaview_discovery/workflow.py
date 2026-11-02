@@ -30,12 +30,27 @@ class DiscoveryWorkflow:
     async def run(self, run_id: str) -> int:
         try:
             run = await workflow.execute_activity(c.GET_RUN, run_id, **QUICK)
-            query = run["query"]
+            query, geo = run["query"], run.get("geo")
+            # The strategist sees the market scope as part of the theme.
+            theme = f"{query} (market: {geo['label']}, within {geo['radius_km']} km)" if geo else query
 
             await self._status(run_id, "crawling")
-            count = await self._remote(c.CRAWL_SOURCES, c.CRAWLER_QUEUE, run_id, query, run["sources"])
+            record_evidence = workflow.patched("research_evidence_v1")
+            web_urls = None
+            if "web" in run["sources"]:
+                web_urls = await self._remote(c.DISCOVER_WEB_URLS, c.INTEGRATIONS_QUEUE, run["workspace_id"], query, geo)
+            if record_evidence:
+                result = await self._remote(c.CRAWL_SOURCES, c.CRAWLER_QUEUE, run_id, query, run["sources"], geo, web_urls, True)
+                await self._remote(c.RECORD_RESEARCH_CRAWL, c.DISCOVERY_QUEUE, run_id, result)
+                count = result["count"]
+                failures = [attempt for attempt in result.get("attempts", []) if attempt["outcome"] not in ("fetched", "no_results", "duplicate")]
+            elif web_urls is not None:
+                count = await self._remote(c.CRAWL_SOURCES, c.CRAWLER_QUEUE, run_id, query, run["sources"], geo, web_urls)
+            else:
+                count = await self._remote(c.CRAWL_SOURCES, c.CRAWLER_QUEUE, run_id, query, run["sources"], geo)
             if count == 0:
-                await self._status(run_id, "completed", "No signals found for this query", 0)
+                detail = "Sources were blocked or failed; no demand conclusion is supported." if record_evidence and failures else "No signals returned in this bounded Quick pass; this does not establish absent demand."
+                await self._status(run_id, "completed", detail, 0)
                 return 0
 
             await self._status(run_id, "analyzing", None, count)
@@ -44,14 +59,16 @@ class DiscoveryWorkflow:
             await self._status(run_id, "enriching")
             keywords = sorted({kw for cl in clusters for kw in cl["keywords"][:3]})
             enrichment = await self._remote(
-                c.ENRICH_KEYWORDS, c.INTEGRATIONS_QUEUE, run["workspace_id"], keywords
+                c.ENRICH_KEYWORDS, c.INTEGRATIONS_QUEUE, run["workspace_id"], keywords, geo
             )
 
             await self._status(run_id, "synthesizing")
             ranked = await self._remote(c.RANK_CLUSTERS, c.DISCOVERY_QUEUE, clusters, enrichment)
             strategies = await asyncio.gather(
                 *(
-                    self._remote(c.SYNTHESIZE_STRATEGY, c.STRATEGIST_QUEUE, query, r["cluster"], r["scored"])
+                    self._remote(
+                        c.SYNTHESIZE_STRATEGY, c.STRATEGIST_QUEUE, run["workspace_id"], theme, r["cluster"], r["scored"]
+                    )
                     for r in ranked
                 )
             )

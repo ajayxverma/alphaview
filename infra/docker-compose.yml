@@ -34,7 +34,7 @@ services:
       POSTGRES_USER: alphaview
       POSTGRES_PASSWORD: alphaview
       POSTGRES_DB: alphaview
-    ports: ["127.0.0.1:5432:5432"]
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U alphaview"]
@@ -43,7 +43,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["127.0.0.1:6379:6379"]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-56379}:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -54,7 +54,7 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: alphaview
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    ports: ["127.0.0.1:8123:8123"]
+    ports: ["127.0.0.1:${CLICKHOUSE_HOST_PORT:-58123}:8123"]
     volumes: [chdata:/var/lib/clickhouse]
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
@@ -71,7 +71,7 @@ services:
       POSTGRES_USER: alphaview
       POSTGRES_PWD: alphaview
       POSTGRES_SEEDS: postgres
-    ports: ["127.0.0.1:7233:7233"]
+    ports: ["127.0.0.1:${TEMPORAL_HOST_PORT:-57233}:7233"]
     depends_on:
       postgres: { condition: service_healthy }
     restart: unless-stopped
@@ -91,6 +91,7 @@ services:
       identity: { condition: service_healthy }
       integrations-api: { condition: service_healthy }
       discovery-api: { condition: service_healthy }
+      strategist-api: { condition: service_healthy }
     restart: unless-stopped
     networks:
       default:
@@ -131,6 +132,8 @@ services:
   integrations-worker:
     <<: *python
     image: alphaview/integrations:local
+    # Built by integrations-api; never pull from a registry.
+    pull_policy: never
     environment: *integrations-env
     command: ["python", "-m", "alphaview_integrations.worker"]
     depends_on:
@@ -148,6 +151,8 @@ services:
   discovery-worker:
     <<: *python
     image: alphaview/discovery:local
+    # Built by discovery-api; never pull from a registry.
+    pull_policy: never
     environment: *service-env
     command: ["python", "-m", "alphaview_discovery.worker"]
     depends_on:
@@ -166,21 +171,41 @@ services:
     environment: *service-env
     command: ["python", "-m", "alphaview_nlp.worker"]
 
-  strategist-worker:
+  # ---------- strategist (AI providers API + synthesis worker) ----------
+  strategist-api:
     <<: *python
     build: { context: .., dockerfile: infra/docker/python.Dockerfile, args: { SERVICE: strategist } }
-    environment:
+    image: alphaview/strategist:local
+    environment: &strategist-env
       <<: *service-env
+      ALLOW_PRIVATE_LLM_ENDPOINTS: ${ALLOW_PRIVATE_LLM_ENDPOINTS:-false}
+      # Optional server-wide fallback when a workspace has not added its own AI provider.
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    command: ["uvicorn", "alphaview_strategist.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "172.28.0.5"]
+    healthcheck: *api-health
+
+  strategist-worker:
+    <<: *python
+    image: alphaview/strategist:local
+    # Built by strategist-api; never pull from a registry.
+    pull_policy: never
+    environment: *strategist-env
+    extra_hosts: ["host.docker.internal:host-gateway"]
     command: ["python", "-m", "alphaview_strategist.worker"]
+    depends_on:
+      strategist-api: { condition: service_healthy }
 
 networks:
   default:
     ipam:
       config:
         - subnet: 172.28.0.0/16
+          # Dynamic IPs come from here so the static gateway/web IPs in 172.28.0.x never collide.
+          ip_range: 172.28.1.0/24
 
 volumes:
   pgdata:

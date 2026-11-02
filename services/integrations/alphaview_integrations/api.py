@@ -199,9 +199,12 @@ async def query_connection(
     conn = await _get_connection(db, principal, connection_id)
     connector = _require_connector(conn.provider)
     keywords = [k.strip()[:100] for k in body.keywords if k.strip()]
+    geo = body.location.to_geo() if body.location else None
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            return await connector.enrich(client, decrypt_json(conn.encrypted_credentials), conn.config, keywords)
+            return await connector.enrich(
+                client, decrypt_json(conn.encrypted_credentials), conn.config, keywords, geo
+            )
         except (ConnectorError, httpx.HTTPError) as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"{connector.name} error: {exc}") from exc
 

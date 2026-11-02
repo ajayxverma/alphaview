@@ -22,6 +22,7 @@ class CommonSettings(BaseSettings):
 
     temporal_host: str = "localhost:7233"
     temporal_namespace: str = "default"
+    research_ingest_url: str = "http://discovery-api:8000"
 
     jwt_secret: str = "change-me-in-production-please-32b"
     jwt_ttl_minutes: int = 720

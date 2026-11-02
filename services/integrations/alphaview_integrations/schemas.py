@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from alphaview_common.geo import GeoIn
+
 
 class FieldSpec(BaseModel):
     key: str
@@ -49,3 +51,4 @@ class ConnectionOut(BaseModel):
 
 class ConnectionQueryIn(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=20)
+    location: GeoIn | None = None

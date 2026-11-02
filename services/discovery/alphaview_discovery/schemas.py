@@ -4,10 +4,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from alphaview_common.contracts import SOURCES
+from alphaview_common.geo import GeoIn
+from alphaview_common.research import ResearchOptions
+
 
 class DiscoveryCreate(BaseModel):
     query: str = Field(min_length=2, max_length=300)
-    sources: list[str] = Field(default_factory=lambda: ["reddit", "hackernews", "stackexchange"])
+    sources: list[str] = Field(default_factory=lambda: [source for source in SOURCES if source != "web"])
+    location: GeoIn | None = None
+    research: ResearchOptions = Field(default_factory=ResearchOptions)
 
 
 class OpportunityOut(BaseModel):
@@ -30,6 +36,8 @@ class RunOut(BaseModel):
     id: uuid.UUID
     query: str
     sources: list[str]
+    geo: dict[str, Any] | None = None
+    research_config: dict[str, Any] | None = None
     status: str
     signal_count: int
     error: str | None

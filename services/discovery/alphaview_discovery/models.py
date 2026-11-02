@@ -8,13 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from alphaview_common.db import make_engine
+from alphaview_discovery.migrate import upgrade_database
 
 SCHEMA = "discovery"
 engine, SessionLocal = make_engine()
 
-
 class Base(DeclarativeBase):
     metadata = MetaData(schema=SCHEMA)
+
+
+async def init_db() -> None:
+    await upgrade_database(engine)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -27,6 +31,7 @@ def _now() -> datetime:
 
 
 class RunStatus(enum.StrEnum):
+    cancelled = "cancelled"
     queued = "queued"
     crawling = "crawling"
     analyzing = "analyzing"
@@ -45,6 +50,9 @@ class DiscoveryRun(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     query: Mapped[str] = mapped_column(String(300))
     sources: Mapped[list] = mapped_column(JSON, default=list)
+    # Search location ({label, lat, lon, radius_km, country_code, ...}); NULL means global.
+    geo: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    research_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=RunStatus.queued.value)
     signal_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

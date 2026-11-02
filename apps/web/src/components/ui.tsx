@@ -46,6 +46,7 @@ const STATUS_STYLES: Record<RunStatus, string> = {
   synthesizing: "bg-fuchsia-900 text-fuchsia-200",
   completed: "bg-emerald-900 text-emerald-200",
   failed: "bg-rose-900 text-rose-200",
+  cancelled: "bg-slate-700 text-slate-300",
 };
 
 export function StatusPill({ status }: { status: RunStatus }) {

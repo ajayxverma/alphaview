@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Metric, Rich, ScoreBar, num, pct, scoreColor } from "@/components/ui";
+import { ScoreInfo } from "@/components/score-info";
+import { InvestigateButton } from "@/components/research-controls";
 import { api } from "@/lib/api";
 import type { Opportunity } from "@/lib/types";
 
@@ -41,6 +43,24 @@ const EXTERNAL_LABELS: Record<string, string> = {
   owned_site_searches: "Your GA4 site searches",
 };
 
+const SOURCE_SITES: Record<string, { name: string; url?: string }> = {
+  reddit: { name: "Reddit", url: "https://www.reddit.com" },
+  hackernews: { name: "Hacker News", url: "https://news.ycombinator.com" },
+  stackexchange: { name: "Stack Exchange", url: "https://stackexchange.com" },
+  github: { name: "GitHub Issues", url: "https://github.com" },
+  devto: { name: "DEV Community", url: "https://dev.to" },
+  mastodon: { name: "Mastodon (mastodon.social)", url: "https://mastodon.social" },
+  web: { name: "Web & Blogs" },
+};
+
+function evidenceDomain(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 export default function OpportunityPage() {
   const { id } = useParams<{ id: string }>();
   const { data: opp, error } = useQuery({
@@ -70,12 +90,24 @@ export default function OpportunityPage() {
           <p className="text-sm text-slate-500">
             Cluster: {opp.cluster_label} - keywords: {opp.keywords.join(", ")}
           </p>
-          {s.generated_by === "heuristic" && (
-            <p className="mt-1 text-xs text-amber-300">Heuristic synthesis - configure an LLM key for full analysis.</p>
+          {s.generated_by === "heuristic" ? (
+            <p className="mt-1 text-xs text-amber-300">
+              Heuristic synthesis. {s.fallback_reason ?? "AI synthesis was unavailable when this report was generated."}{" "}
+              {s.model && <span>Attempted model: {s.model}. </span>}
+              <Link href="/ai-models" className="underline hover:text-amber-200">
+                Check AI Models
+              </Link>{" "}
+              and start a new discovery run to generate a fresh report.
+            </p>
+          ) : (
+            s.model && <p className="mt-1 text-xs text-slate-500">Synthesized by {s.model}</p>
           )}
         </div>
         <div className="w-48 text-right">
-          <div className={`text-4xl font-bold ${scoreColor(opp.gap_score)}`}>{opp.gap_score}</div>
+          <div className="flex items-center justify-end gap-2">
+            <div className={`text-4xl font-bold ${scoreColor(opp.gap_score)}`}>{opp.gap_score}</div>
+            <ScoreInfo score={opp.gap_score} confidence={opp.confidence} metrics={m} />
+          </div>
           <div className="mb-2 text-xs uppercase text-slate-500">gap score - {pct(opp.confidence)} confidence</div>
           <ScoreBar score={opp.gap_score} />
         </div>
@@ -83,6 +115,28 @@ export default function OpportunityPage() {
 
       <Section title="Key takeaways">
         <List items={s.key_takeaways} />
+      </Section>
+      <InvestigateButton opportunityId={opp.id}/>
+
+      <Section title="Sources gathered">
+        <ul className="divide-y divide-slate-800">
+          {Object.entries(m.sources).map(([source, count]) => {
+            const site = SOURCE_SITES[source];
+            return (
+              <li key={source} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                {site?.url ? (
+                  <a href={site.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-brand">
+                    {site.name} <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : <span>{site?.name ?? source}</span>}
+                <span className="text-sm text-slate-400"><strong className="text-white">{num(count)}</strong> signals</span>
+              </li>
+            );
+          })}
+        </ul>
+        {m.connectors_used.length > 0 && (
+          <p className="text-xs text-slate-400">Analytics data: {m.connectors_used.join(", ")}</p>
+        )}
       </Section>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -140,19 +194,25 @@ export default function OpportunityPage() {
       <Section title="Evidence">
         <ul className="divide-y divide-slate-800">
           {opp.evidence.map((e, i) => (
-            <li key={i} className="flex items-center justify-between gap-4 py-2">
+            <li key={i} className="space-y-2 py-3">
               <a
                 href={e.url}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
-                className="flex items-center gap-2 text-slate-200 hover:text-brand"
+                className="flex items-start gap-2 break-words text-slate-200 hover:text-brand"
               >
                 {e.title || e.url}
                 <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
-              <span className="shrink-0 text-xs text-slate-500">
-                {e.source} - {e.intent} - {e.engagement} eng.
-              </span>
+              {e.excerpt && <p className="break-words text-sm text-slate-400">{e.excerpt}</p>}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                <span>{SOURCE_SITES[e.source]?.name ?? e.source}</span>
+                <span>{evidenceDomain(e.url)}</span>
+                {e.source === "web" && <span>Editorial evidence (half demand weight)</span>}
+                <span>{e.intent}</span>
+                <span>{e.engagement} engagement</span>
+                {e.published_at && <time dateTime={e.published_at}>{new Date(e.published_at).toLocaleDateString()}</time>}
+              </div>
             </li>
           ))}
         </ul>

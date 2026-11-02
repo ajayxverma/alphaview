@@ -50,3 +50,27 @@ def test_small_corpus_single_cluster():
     annotate(signals)
     clusters = cluster_signals(signals, "x")
     assert len(clusters) == 1 and clusters[0]["size"] == 5
+
+
+def test_evidence_includes_each_contributing_source_with_provenance():
+    signals = [_sig(index, "invoice problem") for index in range(9)]
+    signals[0].source = "mastodon"
+    signals[0].text = "Public post excerpt"
+    signals[1].source = "github"
+    cluster = cluster_signals(signals, "invoice")[0]
+    assert cluster["sources"] == {"mastodon": 1, "github": 1, "hackernews": 7}
+    assert {item["source"] for item in cluster["evidence"]} == set(cluster["sources"])
+    social = next(item for item in cluster["evidence"] if item["source"] == "mastodon")
+    assert social["excerpt"] == "Public post excerpt"
+    assert social["published_at"] and social["url"]
+
+
+def test_web_editorial_evidence_has_lower_demand_weight():
+    community = _sig(1, "Invoice software is broken")
+    web = _sig(2, "Invoice software is broken")
+    web.source = "web"
+    annotate([community, web])
+    direct = cluster_signals([community], "invoice")[0]
+    editorial = cluster_signals([web], "invoice")[0]
+    assert editorial["demand_ratio"] == direct["demand_ratio"] / 2
+    assert editorial["complaint_ratio"] == direct["complaint_ratio"] / 2

@@ -12,10 +12,14 @@ def make_engine() -> tuple[AsyncEngine, async_sessionmaker]:
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def init_schema(engine: AsyncEngine, base: type[DeclarativeBase], schema: str) -> None:
-    """Each service owns exactly one Postgres schema."""
+async def init_schema(
+    engine: AsyncEngine, base: type[DeclarativeBase], schema: str, upgrades: tuple[str, ...] = ()
+) -> None:
+    """Each service owns exactly one Postgres schema. `upgrades` must be idempotent DDL (e.g. ADD COLUMN IF NOT EXISTS)."""
     async with engine.begin() as conn:
         # Serialize DDL across replicas/uvicorn workers starting at the same time.
         await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:s))"), {"s": schema})
         await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         await conn.run_sync(base.metadata.create_all)
+        for statement in upgrades:
+            await conn.execute(text(statement))

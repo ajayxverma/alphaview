@@ -1,11 +1,13 @@
 PY_SERVICES := identity integrations discovery crawler nlp strategist
-.PHONY: up down restart logs status test lint dev-infra dev-identity dev-integrations dev-integrations-worker \
+.PHONY: up down reset restart logs status test lint dev-infra dev-identity dev-integrations dev-integrations-worker \
 	dev-discovery dev-discovery-worker dev-crawler dev-nlp dev-strategist dev-web
 
 up:        ## build + start all microservices in Docker
 	./start.sh up
-down:
-	./start.sh stop
+down:      ## stop all services, keep data
+	./stop.sh
+reset:     ## delete containers, volumes and images (asks for confirmation)
+	./reset.sh
 restart:
 	./start.sh restart
 logs:

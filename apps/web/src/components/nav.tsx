@@ -1,13 +1,14 @@
 "use client";
 
 import clsx from "clsx";
-import { Activity, LayoutDashboard, LogOut, Plug } from "lucide-react";
+import { Activity, Bot, LayoutDashboard, LogOut, Plug } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const LINKS = [
   { href: "/dashboard", label: "Discovery", icon: LayoutDashboard },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/ai-models", label: "AI Models", icon: Bot },
 ];
 
 export function Nav() {

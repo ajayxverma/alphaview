@@ -1,11 +1,20 @@
 from datetime import date, timedelta
 from urllib.parse import quote
 
+import pycountry
+
 from alphaview_integrations.connectors import google_oauth
 from alphaview_integrations.connectors.base import Capability, Connector, ConnectorError, KeywordMetrics, raise_for
 from alphaview_integrations.schemas import FieldSpec
 
 API = "https://www.googleapis.com/webmasters/v3/sites"
+
+
+def alpha3(country_code: str | None) -> str | None:
+    if not country_code:
+        return None
+    country = pycountry.countries.get(alpha_2=country_code.upper())
+    return country.alpha_3.lower() if country else None
 
 
 class GoogleSearchConsole(Connector):
@@ -33,13 +42,18 @@ class GoogleSearchConsole(Connector):
         resp = await client.get(f"{API}/{self._site(config)}", headers={"Authorization": f"Bearer {token}"})
         raise_for(resp, "Search Console")
 
-    async def enrich(self, client, creds, config, keywords) -> KeywordMetrics:
+    async def enrich(self, client, creds, config, keywords, geo=None) -> KeywordMetrics:
         token = await google_oauth.access_token(client, creds)
         site = self._site(config)
         end = date.today()
         start = end - timedelta(days=90)
+        country = alpha3(geo.get("country_code")) if geo else None
         out: KeywordMetrics = {}
         for kw in keywords:
+            filters = [{"dimension": "query", "operator": "contains", "expression": kw}]
+            if country:
+                # Search Console only segments by country (ISO alpha-3, lower case).
+                filters.append({"dimension": "country", "operator": "equals", "expression": country})
             resp = await client.post(
                 f"{API}/{site}/searchAnalytics/query",
                 headers={"Authorization": f"Bearer {token}"},
@@ -47,9 +61,7 @@ class GoogleSearchConsole(Connector):
                     "startDate": start.isoformat(),
                     "endDate": end.isoformat(),
                     "dimensions": ["query"],
-                    "dimensionFilterGroups": [
-                        {"filters": [{"dimension": "query", "operator": "contains", "expression": kw}]}
-                    ],
+                    "dimensionFilterGroups": [{"filters": filters}],
                     "rowLimit": 250,
                 },
             )
